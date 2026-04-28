@@ -58,7 +58,7 @@ def _vlm_infer(image_b64: str, prompt_mode: str = "detailed") -> dict:
             "返回JSON（不要其他文字）：\n"
             '{"hull_number":"弦号(无则空)", "clarity":"clear/blurry/空", '
             '"description":"船型+颜色+特征(50字内)", "hull_box":[x1,y1,x2,y2]或null}\n\n'
-            "hull_box规则：仅当弦号模糊无法确认时返回定位框（相对坐标0~1）；弦号清晰可读或无弦号时返回null。"
+            "hull_box: 识别到弦号时返回弦号文字定位框（相对坐标0~1）；无弦号时返回null。"
         )
     else:
         prompt = (
@@ -70,9 +70,8 @@ def _vlm_infer(image_b64: str, prompt_mode: str = "detailed") -> dict:
             '"description":"船型+船体颜色+上层建筑颜色+特殊标志(不提图片质量)", '
             '"hull_box":[x1,y1,x2,y2]或null}\n\n'
             "hull_box规则：\n"
-            "- clarity=blurry → 返回弦号文字定位框（相对坐标0~1，左上角原点，紧密贴合文字边缘）\n"
-            "- clarity=clear → 返回null（弦号已可读，无需定位）\n"
-            "- clarity=空 → 返回null（无弦号）"
+            "- 识别到弦号 → 返回弦号文字精确坐标（相对值0~1，左上角原点，紧密贴合文字边缘）\n"
+            "- 未识别到弦号 → 返回null"
         )
 
     payload = {
