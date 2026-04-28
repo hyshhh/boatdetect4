@@ -226,7 +226,7 @@ class ShipPipeline:
             "cascade_vlm",
             track_id=track_id,
             frame_id=frame_id,
-            content=f"弦号={hull_number or '(无)'} 描述={description[:40] if description else '(无)'} hull_box={hull_box or '(无)'} clarity={clarity or '(无)'}",
+            content=f"弦号={hull_number or '(无)'} 描述={description[:40] if description else '(无)'} hull_box={vlm_result.get('_raw_hull_box') or '(无)'} clarity={clarity or '(无)'}",
         )
 
         if not hull_number and not description:

@@ -63,14 +63,16 @@ def _vlm_infer(image_b64: str, prompt_mode: str = "detailed") -> dict:
     else:
         prompt = (
             "读取船体侧面的弦号编号。不要评价图片质量，不要编造弦号。\n"
-            "弦号位置：船体侧面水线附近或船尾，不在驾驶舱/甲板/桅杆上。\n\n"
+            "弦号位置：船体侧面水线附近或船尾，通常在船的中下部，不在驾驶舱/甲板/桅杆上。\n\n"
             "返回JSON（不要其他文字）：\n"
             '{"hull_number":"读到的弦号(无可见文字则空)", '
             '"clarity":"clear(清晰可辨)/blurry(模糊但尝试读出)/空(无弦号)", '
             '"description":"船型+船体颜色+上层建筑颜色+特殊标志(不提图片质量)", '
             '"hull_box":[x1,y1,x2,y2]或null}\n\n'
             "hull_box规则：\n"
-            "- 识别到弦号 → 返回弦号文字精确坐标（相对值0~1，左上角原点，紧密贴合文字边缘）\n"
+            "- 识别到弦号 → 返回弦号文字的精确边界框，用归一化坐标[0~1]表示\n"
+            "  坐标格式: [左上x, 左上y, 右下x, 右下y]，原点在图片左上角\n"
+            "  紧密贴合文字边缘，不要留太多空白\n"
             "- 未识别到弦号 → 返回null"
         )
 
@@ -133,7 +135,13 @@ def _vlm_infer(image_b64: str, prompt_mode: str = "detailed") -> dict:
         try:
             coords = [float(v) for v in raw_box]
             if all(0.0 <= c <= 1.0 for c in coords):
-                hull_box = coords
+                # 后处理：弦号通常在船体中下部（y 方向 30%~100%）
+                # 如果 hull_box 的 y 坐标在 crop 上半部分，大概率是 VLM 乱指，丢弃
+                ry1, ry2 = coords[1], coords[3]
+                if ry1 < 0.2 and ry2 < 0.4:
+                    logger.debug("hull_box y 坐标偏上 (%.2f, %.2f)，疑似定位错误，丢弃", ry1, ry2)
+                else:
+                    hull_box = coords
             else:
                 logger.warning("hull_box 坐标超出范围 [0,1]: %s", raw_box)
         except (ValueError, TypeError):
@@ -152,6 +160,8 @@ def _vlm_infer(image_b64: str, prompt_mode: str = "detailed") -> dict:
         "description": str(result.get("description") or "").strip(),
         "hull_box": hull_box,
         "clarity": clarity,
+        # debug: 保留原始返回值便于排查定位问题
+        "_raw_hull_box": raw_box,
     }
 
 
