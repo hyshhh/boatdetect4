@@ -289,14 +289,12 @@ class ShipPipeline:
 
     def _run_agent_chain(self, crop: np.ndarray, track_id: int = 0, frame_id: int = 0) -> AgentResult:
         """
-        Agent 模式执行链路。
+        Agent 模式执行链路（优化版：快速路径优先）。
 
-        链路设计：
-        1. Pipeline 预调用 VLM 一次（避免 base64 占用 LLM token）
-        2. 将 VLM 结果传入 Agent
-        3. Agent 决策：
-           - 无弦号 → retrieve_by_description
-           - 有弦号 → lookup_by_hull_number → 未命中则 retrieve_by_description
+        优化策略：
+        1. VLM 预识别 → 拿到弦号+描述
+        2. 快速路径：本地硬编码查库（精确命中 → 直接返回，跳过 Agent）
+        3. 慢速路径：本地查不到 → 走 Agent 做语义检索兜底
         """
         if self._agent is None:
             raise RuntimeError("Agent 模式未初始化（use_agent=True 但 agent 为 None）")
@@ -305,7 +303,7 @@ class ShipPipeline:
 
         crop_b64 = self._encode_image(crop)
 
-        # 第一步：预调用 VLM 获取初始识别结果（一次调用）
+        # 第一步：预调用 VLM 获取初始识别结果
         vlm_result = _vlm_infer(crop_b64, prompt_mode=self._prompt_mode)
         hull_number = vlm_result.get("hull_number", "")
         description = vlm_result.get("description", "")
@@ -327,7 +325,27 @@ class ShipPipeline:
         if not hull_number and not description:
             return AgentResult(answer="VLM 未返回结果", hull_box=hull_box, clarity=clarity)
 
-        # 仅传 VLM 结果给 Agent（不含 base64，大幅减少 token）
+        # ── 快速路径：有弦号时先本地精确查找 ──
+        if hull_number:
+            desc_in_db = self._db.lookup(hull_number)
+            if desc_in_db is not None:
+                self._log_agent_trace(
+                    "cascade_lookup", track_id=track_id, frame_id=frame_id,
+                    content=f"精确查找: 命中 (弦号={hull_number})",
+                )
+                self._log_agent_trace(
+                    "fast_path_result", track_id, frame_id,
+                    content=f"快速路径命中: 弦号={hull_number} 跳过Agent",
+                )
+                return AgentResult(
+                    hull_number=hull_number,
+                    description=description or desc_in_db,
+                    match_type="exact",
+                    hull_box=hull_box,
+                    clarity=clarity,
+                )
+
+        # ── 慢速路径：本地查不到，走 Agent ──
         query = (
             f"VLM 识别结果：\n"
             f"- 弦号：\"{hull_number}\"\n"

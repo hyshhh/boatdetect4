@@ -115,7 +115,7 @@ class ShipHullAgent:
             api_key=llm_cfg.get("api_key", "abc123"),
             base_url=llm_cfg.get("base_url", "http://localhost:7890/v1"),
             temperature=llm_cfg.get("temperature", 0.0),
-            max_tokens=llm_cfg.get("max_tokens", 2048),
+            max_tokens=512,  # Agent 只需简短决策，不需要 2048
         )
 
         self._agent = create_react_agent(
