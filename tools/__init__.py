@@ -57,8 +57,8 @@ def _vlm_infer(image_b64: str, prompt_mode: str = "detailed") -> dict:
             "识别船体上的弦号编号，不要编造。弦号通常在船体侧面水线附近或船尾。\n"
             "返回JSON（不要其他文字）：\n"
             '{"hull_number":"弦号(无则空)", "clarity":"clear/blurry/空", '
-            '"description":"船型+颜色+特征(50字内)", "hull_box":[x1,y1,x2,y2]或[]}\n'
-            "hull_box: 返回弦号文字相对坐标[0~1]，无弦号时返回空数组。"
+            '"description":"船型+颜色+特征(50字内)", "hull_box":[x1,y1,x2,y2]或null}\n\n'
+            "hull_box规则：仅当弦号模糊无法确认时返回定位框（相对坐标0~1）；弦号清晰可读或无弦号时返回null。"
         )
     else:
         prompt = (
@@ -68,8 +68,11 @@ def _vlm_infer(image_b64: str, prompt_mode: str = "detailed") -> dict:
             '{"hull_number":"读到的弦号(无可见文字则空)", '
             '"clarity":"clear(清晰可辨)/blurry(模糊但尝试读出)/空(无弦号)", '
             '"description":"船型+船体颜色+上层建筑颜色+特殊标志(不提图片质量)", '
-            '"hull_box":[x1,y1,x2,y2]或[]}\n\n'
-            "hull_box: 返回弦号文字精确坐标(相对值0~1，左上角原点)，紧密贴合文字边缘；无弦号时返回空数组。"
+            '"hull_box":[x1,y1,x2,y2]或null}\n\n'
+            "hull_box规则：\n"
+            "- clarity=blurry → 返回弦号文字定位框（相对坐标0~1，左上角原点，紧密贴合文字边缘）\n"
+            "- clarity=clear → 返回null（弦号已可读，无需定位）\n"
+            "- clarity=空 → 返回null（无弦号）"
         )
 
     payload = {
@@ -124,7 +127,7 @@ def _vlm_infer(image_b64: str, prompt_mode: str = "detailed") -> dict:
         logger.warning("VLM 返回非字典类型: %s", type(result).__name__)
         result = {}
 
-    # 解析 hull_box
+    # 解析 hull_box（仅 blurry 时有值，clear/空时为 null）
     hull_box = None
     raw_box = result.get("hull_box")
     if isinstance(raw_box, list) and len(raw_box) == 4:
@@ -136,6 +139,9 @@ def _vlm_infer(image_b64: str, prompt_mode: str = "detailed") -> dict:
                 logger.warning("hull_box 坐标超出范围 [0,1]: %s", raw_box)
         except (ValueError, TypeError):
             logger.warning("hull_box 坐标无法转为 float: %s", raw_box)
+    elif raw_box is not None and not isinstance(raw_box, list):
+        # null / 其他非列表类型 → 视为无定位框
+        logger.debug("hull_box 为 %s，跳过", type(raw_box).__name__)
 
     # 解析 clarity
     clarity = str(result.get("clarity") or "").strip().lower()
